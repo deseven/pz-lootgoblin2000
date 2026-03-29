@@ -1,0 +1,5 @@
+This is a mod for Project Zomboid. It helps people to find needed items in the proximity.
+
+In case you need some guidance: original game LUA files available under `_GameFiles` and API docs available under `_APIReference` (read the `_APIReference/README.md` first to understand how to navigate it).
+
+Instead of rewriting files completely it's better to patch them to not waste time/tokens.

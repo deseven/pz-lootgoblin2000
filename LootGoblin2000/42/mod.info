@@ -1,0 +1,9 @@
+name=Loot Goblin 2000
+id=LootGoblin2000
+description=Your trusty little goblin companion for finding all the good stuff.
+poster=poster.png
+icon=icon.png
+author=deseven
+modversion=1.0.0
+versionMin=42.14
+require=NeatUI_Framework
