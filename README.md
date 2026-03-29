@@ -32,6 +32,8 @@ Once in-game, press `;` (semicolon) to toggle the **Loot Goblin 2000** panel ope
 
 ## Support & Contribution
 
+**[[GitHub Repository](https://github.com/deseven/pz-lootgoblin2000)]**
+
 Found a bug? Something not working right? Head over to **[GitHub Issues](https://github.com/deseven/pz-lootgoblin2000/issues/new)** — that's the only place where support can be provided, so please don't rely on Steam comments or workshop discussions for help. I might or might not answer there.
 
 Want to make the mod even better? **Pull requests are very welcome!** Whether it's a bug fix, a new feature, or just tidying something up — contributions are always appreciated.
