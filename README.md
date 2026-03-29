@@ -1,7 +1,6 @@
-# Loot Goblin 2000 for Project Zomboid b42
+# Loot Goblin 2000 for Project Zomboid B42 [SP/MP]
 
 > *Your trusty little companion for finding all the good stuff.*
-
 
 ## Info
 
@@ -18,14 +17,14 @@ The mod requires [NeatUI Framework](https://steamcommunity.com/workshop/filedeta
 
 ## Usage
 
-Once in-game, press **`;`** (semicolon) to toggle the **Loot Goblin 2000** panel open/closed. You can rebind this in **Options → Mod Options → Loot Goblin 2000** — all options come with tooltips explaining what they do, so go poke around in there.
+Once in-game, press `;` (semicolon) to toggle the **Loot Goblin 2000** panel open/closed. You can rebind this in **Options → Mod Options → Loot Goblin 2000** — all options come with tooltips explaining what they do, so go poke around in there.
 
 **Quick rundown:**
 - Type an item name or ID into the search box — top 5 matches appear instantly
 - The first result is always a **partial match** option (finds anything containing your query)
 - Select an item and the block switches to **finding mode**, scanning nearby containers in real time
 - Use the **grab all / grab one / locate** buttons on each found entry
-- Press **`'`** (apostrophe, also rebindable in mod options) to grab all found items from all containers in your proximity at once
+- Press `'` (apostrophe, also rebindable in mod options) to grab all found items from all containers in your proximity at once
 - Click the **plus button** to add another item to track — stack as many as you like!
 
 **Templates** let you save and reload your favourite item lists. Hit the template button in the panel header to save your current search setup, load a previously saved one, or clean up old ones you no longer need. The template can also be quickly loaded from the search box by writing its name.
