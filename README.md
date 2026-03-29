@@ -7,6 +7,8 @@
 
 Ever spent 10 minutes browsing your 50 containers only to realize you have no idea which box that screwdriver ended up in? **Loot Goblin 2000** has your back.
 
+**[[watch the intro video that covers the basics](https://youtu.be/RcfnxfvRspE)]**
+
 This mod adds a handy floating panel that lets you search for any item by name (or partial name / item ID) and instantly see which nearby containers hold it. Found what you're looking for? Grab one, grab all, or highlight the item in the container. You can track multiple items at once by stacking search blocks in the panel, so your inner goblin can be greedy about *all* the things simultaneously.
 
 > ⚠️ **Important load order note:** Since **Loot Goblin 2000** builds a cache of all available items on startup, it should be placed **below any mods that add new items** in your mod load order.
