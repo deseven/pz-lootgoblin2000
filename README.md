@@ -41,6 +41,7 @@ Want to make the mod even better? **Pull requests are very welcome!** Whether it
 
 ## Credits
 - Idea, design, implementation: [deseven](https://d7.wtf)
-- Code: [Claude](https://claude.ai/)
+- Code: [Claude](https://claude.ai)
 - Icons: [Boxicons](https://boxicons.com)
+- Notification sounds: [Freesound](https://freesound.org)
 - Intro video music: [Gregor Quendel](https://www.classicals.de)

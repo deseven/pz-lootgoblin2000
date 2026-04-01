@@ -1,0 +1,65 @@
+module Base
+{
+    sound lg2000-bell
+    {
+        category = UI,
+        clip
+        {
+            file = media/sound/lg2000-bell.ogg,
+        }
+    }
+
+    sound lg2000-blip
+    {
+        category = UI,
+        clip
+        {
+            file = media/sound/lg2000-blip.ogg,
+        }
+    }
+
+    sound lg2000-bottle
+    {
+        category = UI,
+        clip
+        {
+            file = media/sound/lg2000-bottle.ogg,
+        }
+    }
+
+    sound lg2000-chime
+    {
+        category = UI,
+        clip
+        {
+            file = media/sound/lg2000-chime.ogg,
+        }
+    }
+
+    sound lg2000-ding
+    {
+        category = UI,
+        clip
+        {
+            file = media/sound/lg2000-ding.ogg,
+        }
+    }
+
+    sound lg2000-fart
+    {
+        category = UI,
+        clip
+        {
+            file = media/sound/lg2000-fart.ogg,
+        }
+    }
+
+    sound lg2000-ping
+    {
+        category = UI,
+        clip
+        {
+            file = media/sound/lg2000-ping.ogg,
+        }
+    }
+}

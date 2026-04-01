@@ -137,6 +137,8 @@ end
 -- Exact-type scan.
 -- Returns { found, hasPlayer, hasExternal }
 -- Each entry in `found` has { containerName, itemName, fullType, count, isPlayer, inventory }.
+-- Items that share the same display name (e.g. left/right wrist watch variants) are
+-- grouped into a single entry, matching how the vanilla inventory displays them.
 function LootGoblin2000.scanContainersForItem(fullType, playerNum)
     local found       = {}
     local hasPlayer   = false
@@ -145,41 +147,68 @@ function LootGoblin2000.scanContainersForItem(fullType, playerNum)
                          and LootGoblin2000.options.IgnorePlayerContainers
                          and LootGoblin2000.options.IgnorePlayerContainers:getValue()
 
+    -- Resolve the canonical display name for the requested fullType once.
+    -- We use this to also count items of other fullTypes that share the same
+    -- display name (e.g. WristWatch_Left_DigitalBlack and _Right_DigitalBlack
+    -- both show as "Digital Watch" in the inventory).
+    local targetDisplayName = nil
+    do
+        local scriptItem = getScriptManager():getItem(fullType)
+        if scriptItem then
+            targetDisplayName = scriptItem:getDisplayName()
+        end
+    end
+
     local function scanContainer(container, playerObj)
         local items = container:getItems()
-        local count = 0
-        local itemName = nil
+        -- Group by display name so variants with the same name are merged.
+        -- Key = display name, value = { count, itemName, fullType (first seen) }
+        local groups = {}
         for i = 0, items:size() - 1 do
             local item = items:get(i)
-            if item:getFullType() == fullType then
-                count = count + 1
-                if not itemName then
-                    itemName = item:getName(playerObj) or item:getDisplayName()
+            local itemFT = item:getFullType()
+            -- Match the requested fullType OR any item whose display name equals
+            -- the target display name (covers left/right variants, etc.)
+            local dn = item:getDisplayName()
+            local matches = (itemFT == fullType)
+                         or (targetDisplayName and dn == targetDisplayName)
+            if matches then
+                local key = dn or itemFT
+                if not groups[key] then
+                    groups[key] = {
+                        count    = 0,
+                        itemName = item:getName(playerObj) or dn,
+                        fullType = itemFT,
+                    }
                 end
+                groups[key].count = groups[key].count + 1
             end
         end
-        return count, itemName
+        return groups
     end
 
     local function checkBp(bp, isPlayer)
         if not bp or not bp.inventory then return end
         local playerObj = getSpecificPlayer(playerNum)
-        local ok, count, itemName = pcall(scanContainer, bp.inventory, playerObj)
-        if ok and count and count > 0 then
-            local label = (bp.name and bp.name ~= "") and bp.name
-                          or getText("UI_LootGoblin2000_PlayerInventory")
-            found[#found + 1] = {
-                containerName = label,
-                itemName      = itemName,
-                fullType      = fullType,
-                count         = count,
-                isPlayer      = isPlayer,
-                inventory     = bp.inventory,
-            }
-            if isPlayer then
-                hasPlayer = true
-            else
-                hasExternal = true
+        local ok, groups = pcall(scanContainer, bp.inventory, playerObj)
+        if not ok or not groups then return end
+        local label = (bp.name and bp.name ~= "") and bp.name
+                      or getText("UI_LootGoblin2000_PlayerInventory")
+        for _, g in pairs(groups) do
+            if g.count > 0 then
+                found[#found + 1] = {
+                    containerName = label,
+                    itemName      = g.itemName,
+                    fullType      = g.fullType,
+                    count         = g.count,
+                    isPlayer      = isPlayer,
+                    inventory     = bp.inventory,
+                }
+                if isPlayer then
+                    hasPlayer = true
+                else
+                    hasExternal = true
+                end
             end
         end
     end
@@ -216,7 +245,8 @@ end
 -- Partial-name scan.
 -- Scans all containers for items whose display name contains `query` (case-insensitive).
 -- Returns flat list of entries: { containerName, itemName, fullType, count, isPlayer, inventory }
--- Each unique (container, itemDisplayName) pair becomes one entry.
+-- Each unique (container, displayName) pair becomes one entry, matching how the vanilla
+-- inventory groups items by display name (e.g. left/right watch variants merged into one row).
 function LootGoblin2000.scanContainersForPartial(query, playerNum)
     local found       = {}
     local hasPlayer   = false
@@ -243,27 +273,31 @@ function LootGoblin2000.scanContainersForPartial(query, playerNum)
 
         local playerObj = getSpecificPlayer(playerNum)
 
-        -- Accumulate counts per (fullType, displayName) within this container
-        local counts = {}
-        local names  = {}
+        -- Accumulate counts per display name within this container.
+        -- Items that share a display name (e.g. left/right wrist watch variants)
+        -- are merged into one entry, matching vanilla inventory grouping.
+        local counts   = {}  -- displayName → count
+        local names    = {}  -- displayName → resolved item name (from getName())
+        local firstFTs = {}  -- displayName → fullType of first seen item (for grab/locate)
         for i = 0, items:size() - 1 do
             local item = items:get(i)
-            local dn   = item:getName(playerObj) or item:getDisplayName()
-            if dn and dn:lower():find(lq, 1, true) then
-                local ft = item:getFullType()
-                if not counts[ft] then
-                    counts[ft] = 0
-                    names[ft]  = dn
+            local dn   = item:getDisplayName()
+            local resolved = item:getName(playerObj) or dn
+            if resolved and resolved:lower():find(lq, 1, true) then
+                if not counts[dn] then
+                    counts[dn]   = 0
+                    names[dn]    = resolved
+                    firstFTs[dn] = item:getFullType()
                 end
-                counts[ft] = counts[ft] + 1
+                counts[dn] = counts[dn] + 1
             end
         end
 
-        for ft, cnt in pairs(counts) do
+        for dn, cnt in pairs(counts) do
             found[#found + 1] = {
                 containerName = label,
-                itemName      = names[ft],
-                fullType      = ft,
+                itemName      = names[dn],
+                fullType      = firstFTs[dn],
                 count         = cnt,
                 isPlayer      = isPlayer,
                 inventory     = container,

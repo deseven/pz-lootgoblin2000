@@ -447,11 +447,61 @@ end
 -- Public API
 -- ---------------------------------------------------------------------------
 
-LootGoblin2000.options   = nil
-LootGoblin2000._instance  = nil
-LootGoblin2000._lastX     = nil
-LootGoblin2000._lastY     = nil
-LootGoblin2000._tickCount = 0
+LootGoblin2000.options        = nil
+LootGoblin2000._instance      = nil
+LootGoblin2000._lastX         = nil
+LootGoblin2000._lastY         = nil
+LootGoblin2000._tickCount     = 0
+
+-- Sound notification state
+-- _soundMatchSig: string key representing the set of inventories that currently
+--   contain a match.  The sound resets only when THIS set changes — so walking
+--   past unrelated containers does not re-trigger the sound.
+-- _soundPlayed: true once the notification sound has been played for the
+--   current match set.
+LootGoblin2000._soundMatchSig = nil
+LootGoblin2000._soundPlayed   = false
+
+-- Build a stable string signature from the inventories that currently hold a
+-- match across all finding blocks.  Only external (non-player) entries count.
+local function buildMatchSig(inst)
+    local parts = {}
+    for _, block in ipairs(inst.blocks) do
+        if block.state == "finding" then
+            for _, entry in ipairs(block.foundIn) do
+                if not entry.isPlayer and entry.inventory then
+                    parts[#parts + 1] = tostring(entry.inventory)
+                end
+            end
+        end
+    end
+    table.sort(parts)
+    return table.concat(parts, "|")
+end
+
+-- Returns true when at least one finding block has an external match.
+local function anyExternalFound(inst)
+    for _, block in ipairs(inst.blocks) do
+        if block.state == "finding" and block.hasExternal then
+            return true
+        end
+    end
+    return false
+end
+
+-- Map of combo-box index → sound name (nil = no sound).
+-- Index 1 = "No sound", 2 = "Bell", …  (matches addItem order below)
+local SOUND_NAMES = { nil, "lg2000-bell", "lg2000-blip", "lg2000-bottle", "lg2000-chime", "lg2000-ding", "lg2000-fart", "lg2000-ping" }
+
+local function playNotificationSound()
+    local opt = LootGoblin2000.options and LootGoblin2000.options.NotificationSound
+    if not opt then return end
+    local idx = opt:getValue()
+    local soundName = SOUND_NAMES[idx]
+    if soundName then
+        getSoundManager():playUISound(soundName)
+    end
+end
 
 -- Global tick – scan containers every 5 ticks for all finding blocks
 Events.OnTick.Add(function()
@@ -466,6 +516,23 @@ Events.OnTick.Add(function()
         if block.state == "finding" then
             block:scanContainers()
         end
+    end
+
+    -- Build a signature of the inventories that currently hold a match.
+    -- The sound resets only when this set changes (matching containers left
+    -- range or new matching containers entered range).  Unrelated containers
+    -- entering/leaving proximity do not affect the signature.
+    local matchSig = buildMatchSig(inst)
+    if matchSig ~= LootGoblin2000._soundMatchSig then
+        LootGoblin2000._soundMatchSig = matchSig
+        LootGoblin2000._soundPlayed   = false
+    end
+
+    -- Play notification sound once per match-set when an external match exists
+    -- and the sound hasn't been played yet for this match set.
+    if not LootGoblin2000._soundPlayed and anyExternalFound(inst) then
+        LootGoblin2000._soundPlayed = true
+        playNotificationSound()
     end
 end)
 
@@ -539,6 +606,17 @@ LootGoblin2000.options.AlwaysRootInventory = _modOptions:addTickBox("AlwaysRootI
 LootGoblin2000.options.CompactInterface = _modOptions:addTickBox("CompactInterface", getText("UI_LootGoblin2000_Options_CompactInterface_Name"), false, getText("UI_LootGoblin2000_Options_CompactInterface_Tooltip"))
 LootGoblin2000.options.Key               = _modOptions:addKeyBind("Key",               getText("UI_LootGoblin2000_Options_Key_Name"),               Keyboard.KEY_SEMICOLON,  getText("UI_LootGoblin2000_Options_Key_Tooltip"))
 LootGoblin2000.options.GrabAllKey        = _modOptions:addKeyBind("GrabAllKey",        getText("UI_LootGoblin2000_Options_GrabAllKey_Name"),        Keyboard.KEY_APOSTROPHE, getText("UI_LootGoblin2000_Options_GrabAllKey_Tooltip"))
+
+local _soundOpt = _modOptions:addComboBox("NotificationSound", getText("UI_LootGoblin2000_Options_NotificationSound_Name"), getText("UI_LootGoblin2000_Options_NotificationSound_Tooltip"))
+_soundOpt:addItem("UI_LootGoblin2000_Options_NotificationSound_None",   false)
+_soundOpt:addItem("UI_LootGoblin2000_Options_NotificationSound_Bell",   false)
+_soundOpt:addItem("UI_LootGoblin2000_Options_NotificationSound_Blip",   false)
+_soundOpt:addItem("UI_LootGoblin2000_Options_NotificationSound_Bottle", false)
+_soundOpt:addItem("UI_LootGoblin2000_Options_NotificationSound_Chime",  true)  -- default
+_soundOpt:addItem("UI_LootGoblin2000_Options_NotificationSound_Ding",   false)
+_soundOpt:addItem("UI_LootGoblin2000_Options_NotificationSound_Fart",   false)
+_soundOpt:addItem("UI_LootGoblin2000_Options_NotificationSound_Ping",   false)
+LootGoblin2000.options.NotificationSound = _soundOpt
 
 -- Applies the currently saved CompactInterface option to UI.COMPACT and recomputes
 -- all layout constants.  Safe to call before a window exists.
