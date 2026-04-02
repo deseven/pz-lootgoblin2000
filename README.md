@@ -14,6 +14,7 @@ This mod adds a handy floating panel that lets you search for any item by name (
 
 The mod requires [NeatUI Framework](https://steamcommunity.com/workshop/filedetails/?id=3508537032) as a dependency.
 
+Supported game versions: 42.14 and up (tested on 42.16).
 
 ## Usage
 
@@ -27,9 +28,9 @@ Once in-game, press `;` (semicolon) to toggle the **Loot Goblin 2000** panel ope
 - Press `'` (apostrophe, also rebindable in mod options) to grab all found items from all containers in your proximity at once
 - Click the **plus button** to add another item to track — stack as many as you like!
 
-**Needed quantity:** Each search block has an icon button (left of the remove button) that lets you set a specific quantity you need. For example, set it to `1` for a hammer when preparing for carpentry work — once your inventory holds at least that many, the block turns **blue permanently** and the grab-all hotkey skips it. Click the quantity badge to change or clear the amount. The needed quantity is saved in templates and restored when you reopen the panel.
-
 **Templates** let you save and reload your favourite item lists. Hit the template button in the panel header to save your current search setup, load a previously saved one, or clean up old ones you no longer need. The template can also be quickly loaded from the search box by writing its name.
+
+Each search block has an icon button (left of the remove button) that lets you set a **specific quantity** that you need. For example, set it to `1` for a hammer when preparing for carpentry work (you don't need 10 hammers at once for that, right?) — once your inventory holds at least that many, the block turns **blue permanently** and the grab-all hotkey skips it. Click the quantity badge to change or clear the amount. The needed quantity is saved in templates and restored when you reopen the panel.
 
 
 ## Support & Contribution
