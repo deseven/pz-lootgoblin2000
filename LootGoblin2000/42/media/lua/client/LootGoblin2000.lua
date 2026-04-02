@@ -14,12 +14,21 @@
 -- *     - each found entry shows "Container (Item Name xN)" with
 -- *       grab-one / grab-all / locate buttons
 -- *       (grab-all is hidden when count == 1; grab-one takes its place)
+-- *     - an "any amount" icon button appears left of the remove button;
+-- *       clicking it prompts the user to enter a needed quantity (1–999).
+-- *       Once set, the button is replaced by a quantity badge (drawn rect).
+-- *       Clicking the badge re-opens the same prompt; entering a non-number
+-- *       clears the quantity and restores the icon button.
+-- *     - when the player's inventory holds >= the needed quantity the block
+-- *       turns permanently blue ("satisfied"), the notification sound is
+-- *       suppressed for that block, and the grab-all hotkey skips it.
 -- *   The "Add another item" button appears only when the last block is in
 -- *   finding mode (prevents creating multiple empty search blocks).
 -- *   The window resizes dynamically whenever blocks change height.
 -- *   Arrow keys navigate search results; Enter selects the highlighted result
 -- *   or (when in finding mode) adds a new search block.
 -- *   Window and contents are rendered at 0.7 alpha for a slight transparency.
+-- *   Needed quantity is persisted in templates and in the window's saved state.
 -- *****************************************************************************
 
 require "LootGoblin2000_SearchBlock"
@@ -201,6 +210,10 @@ function LootGoblin2000Window:loadTemplate(name)
             data = { displayName = itemData.displayName, fullType = itemData.fullType }
         end
         block:onItemSelected(data, false)
+        -- Restore needed amount if saved in the template
+        if itemData.neededAmount then
+            block:setNeededAmount(itemData.neededAmount)
+        end
     end
 
     self:reflow()
@@ -373,10 +386,11 @@ function LootGoblin2000Window:onCloseClick()
     for _, block in ipairs(self.blocks) do
         if block.state == "finding" and block.targetItem then
             LootGoblin2000._savedBlocks[#LootGoblin2000._savedBlocks + 1] = {
-                isPartial   = block.isPartialMode,
-                query       = block.isPartialMode and block.targetItem.query or nil,
-                displayName = not block.isPartialMode and block.targetItem.displayName or nil,
-                fullType    = not block.isPartialMode and block.targetItem.fullType or nil,
+                isPartial    = block.isPartialMode,
+                query        = block.isPartialMode and block.targetItem.query or nil,
+                displayName  = not block.isPartialMode and block.targetItem.displayName or nil,
+                fullType     = not block.isPartialMode and block.targetItem.fullType or nil,
+                neededAmount = block.neededAmount,
             }
         end
     end
@@ -389,10 +403,11 @@ end
 -- Grab-all helpers (used by the grab-all hotkey)
 -- ---------------------------------------------------------------------------
 
--- Returns true when at least one finding block has external found items.
+-- Returns true when at least one finding block has external found items
+-- AND is not already satisfied (satisfied blocks are excluded from grab-all).
 function LootGoblin2000Window:hasExternalFound()
     for _, block in ipairs(self.blocks) do
-        if block.state == "finding" and block.hasExternal then
+        if block.state == "finding" and block.hasExternal and not block.isSatisfied then
             return true
         end
     end
@@ -400,15 +415,27 @@ function LootGoblin2000Window:hasExternalFound()
 end
 
 -- Grab all found items from all external containers across all finding blocks.
+-- Skips blocks that are already satisfied (player has enough of the needed amount).
+-- When a block has a neededAmount, only grabs enough items to reach that amount.
 function LootGoblin2000Window:grabAllFound()
     local pl = getSpecificPlayer(0)
     if not pl then return end
     local playerNum = pl:getPlayerNum()
     for _, block in ipairs(self.blocks) do
-        if block.state == "finding" then
-            for _, entry in ipairs(block.foundIn) do
-                if not entry.isPlayer then
-                    LootGoblin2000.grabAllItems(entry, playerNum)
+        if block.state == "finding" and not block.isSatisfied then
+            -- When a neededAmount is set, only grab as many as still needed.
+            local stillNeeded = block.neededAmount
+                and (block.neededAmount - block:countPlayerItems())
+                or nil  -- nil = no limit
+            if stillNeeded == nil or stillNeeded > 0 then
+                for _, entry in ipairs(block.foundIn) do
+                    if not entry.isPlayer then
+                        local grabbed = LootGoblin2000.grabAllItems(entry, playerNum, stillNeeded)
+                        if stillNeeded then
+                            stillNeeded = stillNeeded - grabbed
+                            if stillNeeded <= 0 then break end
+                        end
+                    end
                 end
             end
         end
@@ -507,10 +534,11 @@ local function buildMatchSig(inst)
     return table.concat(parts, "|")
 end
 
--- Returns true when at least one finding block has an external match.
+-- Returns true when at least one finding block has an external match
+-- AND is not already satisfied (satisfied blocks suppress the sound).
 local function anyExternalFound(inst)
     for _, block in ipairs(inst.blocks) do
-        if block.state == "finding" and block.hasExternal then
+        if block.state == "finding" and block.hasExternal and not block.isSatisfied then
             return true
         end
     end
@@ -619,6 +647,10 @@ function LootGoblin2000.open()
                 data = { displayName = itemData.displayName, fullType = itemData.fullType }
             end
             block:onItemSelected(data, false)
+            -- Restore needed amount from saved session state
+            if itemData.neededAmount then
+                block:setNeededAmount(itemData.neededAmount)
+            end
         end
 
         win:reflow()

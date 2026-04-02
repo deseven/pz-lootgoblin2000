@@ -38,5 +38,6 @@
     "UI_LootGoblin2000_RemoveTemplate_Confirm": "Remove template '%1'?",
     "UI_LootGoblin2000_RemoveTemplate_Title": "Remove Template",
     "UI_LootGoblin2000_Confirm": "Confirm",
-    "UI_LootGoblin2000_Cancel": "Cancel"
+    "UI_LootGoblin2000_Cancel": "Cancel",
+    "UI_LootGoblin2000_NeededAmount_Prompt": "Input the needed item quantity from 1 to 999, input anything else to search for any quantity."
 }

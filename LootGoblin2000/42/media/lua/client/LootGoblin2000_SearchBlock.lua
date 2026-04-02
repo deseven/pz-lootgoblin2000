@@ -33,6 +33,8 @@ function SearchBlock:new(x, y, w, window)
     o.foundRows       = {}
     o.selectedRowIdx  = 0        -- 0 = none, 1..N = highlighted result row
     o.visibleRowCount = 0
+    o.neededAmount    = nil      -- nil = any amount; 1-999 = specific needed quantity
+    o.isSatisfied     = false    -- true when player inventory has >= neededAmount
     return o
 end
 
@@ -110,7 +112,92 @@ function SearchBlock:initialise()
     self.removeBtn:setVisible(false)
     self:addChild(self.removeBtn)
 
+    -- Any-amount button (finding mode) – left of the remove button, only when search term is defined
+    local anyAmountIcon = getTexture("media/textures/item-any-amount.png")
+    self.anyAmountBtn = UI.IconButton:new(
+        self.width - UI.ICON_SIZE * 2 - UI.PAD * 2,
+        UI.PAD,
+        UI.ICON_SIZE,
+        anyAmountIcon,
+        self,
+        function() self:openNeededAmountDialog() end
+    )
+    self.anyAmountBtn:initialise()
+    self.anyAmountBtn:setVisible(false)
+    self:addChild(self.anyAmountBtn)
+
     self:updateResultRows()
+end
+
+-- ---------------------------------------------------------------------------
+-- Needed-amount dialog
+-- ---------------------------------------------------------------------------
+
+function SearchBlock:openNeededAmountDialog()
+    local modal = ISTextBox:new(
+        0, 0,
+        320, 130,
+        getText("UI_LootGoblin2000_NeededAmount_Prompt"),
+        "",
+        self,
+        function(target, button)
+            if button.internal ~= "OK" then return end
+            local raw = button.parent.entry:getText()
+            local num = tonumber(raw)
+            if num and math.floor(num) == num and num >= 1 and num <= 999 then
+                target:setNeededAmount(math.floor(num))
+            else
+                target:setNeededAmount(nil)
+            end
+        end
+    )
+    modal:initialise()
+    modal:addToUIManager()
+    modal.entry:focus()
+end
+
+-- Sets the needed amount (nil = any, 1-999 = specific).
+-- Updates button/badge visibility and rechecks satisfaction.
+function SearchBlock:setNeededAmount(amount)
+    self.neededAmount = amount
+    self:updateAmountWidgets()
+    self:checkSatisfied()
+end
+
+-- Show/hide the anyAmountBtn vs the quantity badge based on current state.
+function SearchBlock:updateAmountWidgets()
+    if self.state ~= "finding" then
+        self.anyAmountBtn:setVisible(false)
+        return
+    end
+
+    if self.neededAmount then
+        -- Hide the icon button; the badge is drawn in render()
+        self.anyAmountBtn:setVisible(false)
+    else
+        -- Show the icon button
+        self.anyAmountBtn:setVisible(true)
+    end
+end
+
+-- Compute how many of the searched item the player currently holds (all player entries).
+function SearchBlock:countPlayerItems()
+    local total = 0
+    for _, entry in ipairs(self.foundIn) do
+        if entry.isPlayer then
+            total = total + (entry.count or 0)
+        end
+    end
+    return total
+end
+
+-- Recompute isSatisfied based on neededAmount and current player count.
+function SearchBlock:checkSatisfied()
+    if self.neededAmount then
+        self.isSatisfied = self:countPlayerItems() >= self.neededAmount
+    else
+        self.isSatisfied = false
+    end
 end
 
 -- ---------------------------------------------------------------------------
@@ -278,6 +365,7 @@ function SearchBlock:onItemSelected(itemData, fromKeyboard)
     for _, row in ipairs(self.foundRows)  do row:setVisible(false) end
 
     self.removeBtn:setVisible(true)
+    self:updateAmountWidgets()
 
     self:scanContainers()
     self.blockWindow:reflow()
@@ -304,7 +392,12 @@ function SearchBlock:scanContainers()
     local pl = getSpecificPlayer(0)
     if not pl then return end
     local playerNum = pl:getPlayerNum()
-    local prevCount = #self.foundIn
+
+    -- Count previously visible entries for change detection.
+    local prevVisibleCount = 0
+    for _, entry in ipairs(self.foundIn) do
+        if not entry.hiddenFromDisplay then prevVisibleCount = prevVisibleCount + 1 end
+    end
 
     if self.isPartialMode then
         self.foundIn, self.hasPlayer, self.hasExternal =
@@ -314,9 +407,18 @@ function SearchBlock:scanContainers()
             LootGoblin2000.scanContainersForItem(self.targetItem.fullType, playerNum)
     end
 
-    if #self.foundIn ~= prevCount then
+    -- Always recheck satisfaction after a scan (player count may have changed).
+    self:checkSatisfied()
+
+    -- Count visible entries (hidden entries don't affect layout).
+    local visibleCount = 0
+    for _, entry in ipairs(self.foundIn) do
+        if not entry.hiddenFromDisplay then visibleCount = visibleCount + 1 end
+    end
+
+    if visibleCount ~= prevVisibleCount then
         self:updateFoundRows()
-        self:setHeight(UI.findingBlockH(#self.foundIn))
+        self:setHeight(UI.findingBlockH(visibleCount))
         self.blockWindow:reflow()
     else
         self:updateFoundRows()
@@ -335,8 +437,16 @@ function SearchBlock:updateFoundRows()
     local sepH  = UI.COMPACT and 0 or (1 + UI.PAD)
     local baseY = UI.FINDING_HEADER_H + sepH
 
+    -- Build a list of entries that should actually be displayed (skip hidden ones).
+    local visible = {}
+    for _, entry in ipairs(self.foundIn) do
+        if not entry.hiddenFromDisplay then
+            visible[#visible + 1] = entry
+        end
+    end
+
     for i, row in ipairs(self.foundRows) do
-        local entry = self.foundIn[i]
+        local entry = visible[i]
         if entry then
             row:setY(baseY + (i - 1) * UI.FOUND_ROW_H)
             row:setData(entry, playerNum, not entry.isPlayer)
@@ -363,10 +473,25 @@ end
 function SearchBlock:prerender()
     local r, g, b, a = 0.12, 0.12, 0.12, UI.UI_ALPHA
     if self.state == "finding" then
-        if self.hasExternal then
+        if self.isSatisfied then
+            -- Blue: player has reached the needed amount
+            r, g, b = 0.05, 0.08, 0.20
+        elseif self.hasExternal then
             r, g, b = 0.05, 0.18, 0.05   -- green: found externally
-        elseif self.hasPlayer then
-            r, g, b = 0.05, 0.08, 0.20   -- blue: found in player inventory only
+        elseif self.hasPlayer and not self.neededAmount then
+            -- Blue for player-only finds only when no specific amount is required,
+            -- AND only when the player entries are actually visible (i.e. not hidden
+            -- by the IgnorePlayerContainers option).
+            local hasVisiblePlayer = false
+            for _, entry in ipairs(self.foundIn) do
+                if entry.isPlayer and not entry.hiddenFromDisplay then
+                    hasVisiblePlayer = true
+                    break
+                end
+            end
+            if hasVisiblePlayer then
+                r, g, b = 0.05, 0.08, 0.20
+            end
         end
     end
     self:drawRect(0, 0, self.width, self.height, a, r, g, b)
@@ -391,10 +516,59 @@ function SearchBlock:renderSearch()
     end
 end
 
+-- Returns the pixel width of the quantity badge (or 0 if no neededAmount).
+-- The badge is: PAD + text + PAD, minimum ICON_SIZE wide.
+function SearchBlock:getAmountBadgeW()
+    if not self.neededAmount then return 0 end
+    local label = tostring(self.neededAmount)
+    local textW = getTextManager():MeasureStringX(UIFont.Small, label)
+    local badgeW = math.max(UI.ICON_SIZE, textW + UI.PAD * 2)
+    return badgeW
+end
+
 function SearchBlock:renderFinding()
-    local x        = UI.PAD
     local a        = UI.UI_ALPHA
-    local maxNameW = self.width - UI.PAD * 3 - UI.ICON_SIZE
+
+    -- ── Right-side widgets: remove btn is always at far right ──────────────
+    -- anyAmountBtn is left of removeBtn (handled by widget itself when visible).
+    -- If neededAmount is set, draw the badge in place of anyAmountBtn.
+    local rightReserved = UI.ICON_SIZE + UI.PAD  -- remove button
+    if self.neededAmount then
+        local badgeW = self:getAmountBadgeW()
+        local badgeX = self.width - rightReserved - UI.PAD - badgeW
+        local badgeY = UI.PAD
+        local badgeH = UI.ICON_SIZE
+
+        -- Badge background (slightly different color to stand out)
+        self:drawRect(badgeX, badgeY, badgeW, badgeH, a, 0.10, 0.20, 0.35)
+        self:drawRect(badgeX, badgeY, badgeW, 1,      a * 0.8, 0.25, 0.45, 0.65)
+        self:drawRect(badgeX, badgeY + badgeH - 1, badgeW, 1, a * 0.8, 0.25, 0.45, 0.65)
+        self:drawRect(badgeX, badgeY, 1, badgeH,      a * 0.8, 0.25, 0.45, 0.65)
+        self:drawRect(badgeX + badgeW - 1, badgeY, 1, badgeH, a * 0.8, 0.25, 0.45, 0.65)
+
+        -- Badge text (centered)
+        local label  = tostring(self.neededAmount)
+        local textW  = getTextManager():MeasureStringX(UIFont.Small, label)
+        local textH  = getTextManager():getFontHeight(UIFont.Small)
+        local textX  = badgeX + math.floor((badgeW - textW) / 2)
+        local textY  = badgeY + math.floor((badgeH - textH) / 2)
+        self:drawText(label, textX, textY, 0.55, 0.85, 1.0, a, UIFont.Small)
+
+        -- Make the badge clickable by checking mouse position in onMouseUp
+        -- (stored for hit-testing in onMouseUp below)
+        self._badgeX = badgeX
+        self._badgeY = badgeY
+        self._badgeW = badgeW
+        self._badgeH = badgeH
+
+        rightReserved = rightReserved + UI.PAD + badgeW
+    else
+        self._badgeX = nil
+        rightReserved = rightReserved + UI.ICON_SIZE + UI.PAD  -- anyAmountBtn space
+    end
+
+    local x        = UI.PAD
+    local maxNameW = self.width - UI.PAD * 2 - rightReserved
 
     -- In compact mode: one line, vertically centred in the icon band.
     -- In normal mode: name at PAD from top, ID below it (header is sized to fit both).
@@ -433,6 +607,34 @@ function SearchBlock:renderFinding()
     if #self.foundIn > 0 and not UI.COMPACT then
         self:drawRect(UI.PAD, sepY, self.width - UI.PAD * 2, 1, a * 0.5, 0.4, 0.4, 0.4)
     end
+end
+
+-- ---------------------------------------------------------------------------
+-- Mouse events – badge click handling
+-- ---------------------------------------------------------------------------
+
+-- Only consume the mouse-down when it lands on the drawn quantity badge.
+-- Returning false lets child widgets (FoundRow buttons, removeBtn, etc.) receive
+-- their own events normally.
+function SearchBlock:onMouseDown(x, y)
+    if self.state == "finding" and self.neededAmount and self._badgeX then
+        if x >= self._badgeX and x < self._badgeX + self._badgeW
+        and y >= self._badgeY and y < self._badgeY + self._badgeH then
+            return true
+        end
+    end
+    return false
+end
+
+function SearchBlock:onMouseUp(x, y)
+    if self.state == "finding" and self.neededAmount and self._badgeX then
+        if x >= self._badgeX and x < self._badgeX + self._badgeW
+        and y >= self._badgeY and y < self._badgeY + self._badgeH then
+            self:openNeededAmountDialog()
+            return true
+        end
+    end
+    return false
 end
 
 -- Export

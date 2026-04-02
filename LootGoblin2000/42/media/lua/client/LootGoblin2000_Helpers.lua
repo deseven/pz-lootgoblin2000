@@ -43,10 +43,11 @@ function LootGoblin2000.saveTemplate(name, blocks)
     for _, block in ipairs(blocks) do
         if block.state == "finding" and block.targetItem then
             items[#items + 1] = {
-                displayName = block.targetItem.displayName,
-                fullType    = block.targetItem.fullType,
-                isPartial   = block.isPartialMode == true,
-                query       = block.targetItem.query,
+                displayName  = block.targetItem.displayName,
+                fullType     = block.targetItem.fullType,
+                isPartial    = block.isPartialMode == true,
+                query        = block.targetItem.query,
+                neededAmount = block.neededAmount,
             }
         end
     end
@@ -197,12 +198,15 @@ function LootGoblin2000.scanContainersForItem(fullType, playerNum)
         for _, g in pairs(groups) do
             if g.count > 0 then
                 found[#found + 1] = {
-                    containerName = label,
-                    itemName      = g.itemName,
-                    fullType      = g.fullType,
-                    count         = g.count,
-                    isPlayer      = isPlayer,
-                    inventory     = bp.inventory,
+                    containerName    = label,
+                    itemName         = g.itemName,
+                    fullType         = g.fullType,
+                    count            = g.count,
+                    isPlayer         = isPlayer,
+                    inventory        = bp.inventory,
+                    -- When IgnorePlayerContainers is on, player entries are still
+                    -- scanned (for satisfaction counting) but not shown in the UI.
+                    hiddenFromDisplay = isPlayer and ignorePlayer or false,
                 }
                 if isPlayer then
                     hasPlayer = true
@@ -213,12 +217,12 @@ function LootGoblin2000.scanContainersForItem(fullType, playerNum)
         end
     end
 
-    if not ignorePlayer then
-        local invPage = getPlayerInventory(playerNum)
-        if invPage and invPage.inventoryPane and invPage.inventoryPane.inventoryPage then
-            for _, bp in ipairs(invPage.inventoryPane.inventoryPage.backpacks) do
-                checkBp(bp, true)
-            end
+    -- Always scan player containers so satisfaction counting works even when
+    -- IgnorePlayerContainers is enabled.  hiddenFromDisplay suppresses the UI rows.
+    local invPage = getPlayerInventory(playerNum)
+    if invPage and invPage.inventoryPane and invPage.inventoryPane.inventoryPage then
+        for _, bp in ipairs(invPage.inventoryPane.inventoryPage.backpacks) do
+            checkBp(bp, true)
         end
     end
 
@@ -295,23 +299,26 @@ function LootGoblin2000.scanContainersForPartial(query, playerNum)
 
         for dn, cnt in pairs(counts) do
             found[#found + 1] = {
-                containerName = label,
-                itemName      = names[dn],
-                fullType      = firstFTs[dn],
-                count         = cnt,
-                isPlayer      = isPlayer,
-                inventory     = container,
+                containerName    = label,
+                itemName         = names[dn],
+                fullType         = firstFTs[dn],
+                count            = cnt,
+                isPlayer         = isPlayer,
+                inventory        = container,
+                -- When IgnorePlayerContainers is on, player entries are still
+                -- scanned (for satisfaction counting) but not shown in the UI.
+                hiddenFromDisplay = isPlayer and ignorePlayer or false,
             }
             if isPlayer then hasPlayer = true else hasExternal = true end
         end
     end
 
-    if not ignorePlayer then
-        local invPage = getPlayerInventory(playerNum)
-        if invPage and invPage.inventoryPane and invPage.inventoryPane.inventoryPage then
-            for _, bp in ipairs(invPage.inventoryPane.inventoryPage.backpacks) do
-                scanContainer(bp, true)
-            end
+    -- Always scan player containers so satisfaction counting works even when
+    -- IgnorePlayerContainers is enabled.  hiddenFromDisplay suppresses the UI rows.
+    local invPage = getPlayerInventory(playerNum)
+    if invPage and invPage.inventoryPane and invPage.inventoryPane.inventoryPage then
+        for _, bp in ipairs(invPage.inventoryPane.inventoryPage.backpacks) do
+            scanContainer(bp, true)
         end
     end
 
@@ -355,16 +362,19 @@ function LootGoblin2000.grabOneItem(entry, playerNum)
     end
 end
 
-function LootGoblin2000.grabAllItems(entry, playerNum)
+-- Grabs items of entry.fullType from entry.inventory into the player's inventory.
+-- limit: optional maximum number of items to grab (nil = grab all).
+-- Returns the number of items actually queued for transfer.
+function LootGoblin2000.grabAllItems(entry, playerNum, limit)
     local playerObj = getSpecificPlayer(playerNum)
-    if not playerObj then return end
+    if not playerObj then return 0 end
     local alwaysRoot = LootGoblin2000.options
                        and LootGoblin2000.options.AlwaysRootInventory
                        and LootGoblin2000.options.AlwaysRootInventory:getValue()
     local playerInv = alwaysRoot and playerObj:getInventory() or getPlayerInventory(playerNum).inventory
-    if not playerInv then return end
+    if not playerInv then return 0 end
     local srcContainer = entry.inventory
-    if not srcContainer then return end
+    if not srcContainer then return 0 end
     local fullType = entry.fullType
 
     local toTransfer = {}
@@ -373,6 +383,7 @@ function LootGoblin2000.grabAllItems(entry, playerNum)
         local item = items:get(i)
         if item:getFullType() == fullType then
             toTransfer[#toTransfer + 1] = item
+            if limit and #toTransfer >= limit then break end
         end
     end
 
@@ -383,6 +394,7 @@ function LootGoblin2000.grabAllItems(entry, playerNum)
             )
         )
     end
+    return #toTransfer
 end
 
 function LootGoblin2000.locateItem(entry, playerNum)
