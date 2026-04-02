@@ -30,6 +30,7 @@
     "UI_LootGoblin2000_LoadTemplate": "Load template",
     "UI_LootGoblin2000_SaveTemplate": "Save template",
     "UI_LootGoblin2000_RemoveTemplate": "Remove template",
+    "UI_LootGoblin2000_ClearTemplate": "Clear current search list",
     "UI_LootGoblin2000_NoTemplates": "(no templates)",
     "UI_LootGoblin2000_LoadTemplateResult": "Load template '%1'",
     "UI_LootGoblin2000_SaveTemplate_Prompt": "Enter template name:",

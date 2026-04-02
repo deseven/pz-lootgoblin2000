@@ -52,6 +52,14 @@ function SearchBlock:initialise()
     self.searchEntry.onCommandEntered = function(entry)
         self:handleKey(Keyboard.KEY_RETURN)
     end
+    -- Escape: unfocus the field and destroy this block regardless of content.
+    -- Escape is not delivered via onCommandEntered, so we use onOtherKey.
+    self.searchEntry.onOtherKey = function(entry, key)
+        if key == Keyboard.KEY_ESCAPE then
+            Core.UnfocusActiveTextEntryBox()
+            self.blockWindow:removeBlock(self)
+        end
+    end
     -- Arrow-up / arrow-down have dedicated callbacks in ISTextEntryBox.
     self.searchEntry.onPressUp = function(entry)
         self:handleKey(Keyboard.KEY_UP)
@@ -59,9 +67,8 @@ function SearchBlock:initialise()
     self.searchEntry.onPressDown = function(entry)
         self:handleKey(Keyboard.KEY_DOWN)
     end
-    -- When the text entry loses focus (user clicked elsewhere), treat it as
-    -- a cancellation: close the window if this is the only block, otherwise
-    -- remove this block so the user isn't left with an orphaned search field.
+    -- When the text entry loses focus (user clicked elsewhere) and the field
+    -- is empty, remove this block so the add button reappears.
     self.searchEntry.onLostFocus = function(entry)
         self:onSearchEntryLostFocus()
     end
@@ -228,24 +235,18 @@ end
 -- Called when the search text entry loses focus (user clicked elsewhere).
 -- If the mouse is over one of our result rows we do nothing – the row's
 -- onMouseUp / onSelect will fire immediately after and handle the selection.
--- For any other focus loss (click on window chrome, title bar, outside the
--- window, etc.) treat it as a cancellation:
---   • only block → close the window
---   • multiple blocks → remove this block
+-- If the field has content, just leave it – the user can come back to it.
+-- If the field is empty, remove this block (the add button will reappear).
 function SearchBlock:onSearchEntryLostFocus()
     if self.state ~= "search" then return end
     -- Allow result-row clicks to proceed normally.
     for _, row in ipairs(self.resultRows) do
         if row:isVisible() and row:isMouseOver() then return end
     end
-    -- Allow clicks on window chrome (template button, close button, title bar)
-    -- to proceed without closing the window.
-    if self.blockWindow:isMouseOver() then return end
-    if #self.blockWindow.blocks <= 1 then
-        self.blockWindow:onCloseClick()
-    else
-        self.blockWindow:removeBlock(self)
-    end
+    -- If the field has content, just leave it – the user can come back to it.
+    if self.searchQuery ~= "" then return end
+    -- Empty field: always remove this block so the add button reappears.
+    self.blockWindow:removeBlock(self)
 end
 
 -- ---------------------------------------------------------------------------

@@ -116,10 +116,8 @@ function LootGoblin2000Window:removeBlock(block)
             break
         end
     end
-    if #self.blocks == 0 then
-        self:addBlock()
-        return
-    end
+    -- When the last block is removed, just reflow so the add button appears.
+    -- No new block is created automatically.
     self:reflow()
 end
 
@@ -169,6 +167,11 @@ function LootGoblin2000Window:openTemplateMenu()
             end, name)
         end
     end
+
+    -- ── Clear current template ─────────────────────────────────────────────
+    context:addOption(getText("UI_LootGoblin2000_ClearTemplate"), self, function(win)
+        win:clearBlocks()
+    end)
 
     context:render()
 end
@@ -271,7 +274,9 @@ function LootGoblin2000Window:reflow()
     end
 
     local lastBlock = self.blocks[#self.blocks]
-    local showAdd   = lastBlock and lastBlock.state == "finding"
+    -- Show the add button when there are no blocks, or when the last block is
+    -- in finding mode.
+    local showAdd = (not lastBlock) or (lastBlock.state == "finding")
 
     if showAdd then
         self.addButton:setY(y + UI.PAD)
@@ -349,10 +354,32 @@ end
 -- Close
 -- ---------------------------------------------------------------------------
 
+-- Clear all blocks. The add button will reappear via reflow.
+function LootGoblin2000Window:clearBlocks()
+    for i = #self.blocks, 1, -1 do
+        self:removeChild(self.blocks[i])
+    end
+    self.blocks = {}
+    self:reflow()
+    print("[LootGoblin2000] cleared all search blocks")
+end
+
 function LootGoblin2000Window:onCloseClick()
     print("[LootGoblin2000] closing window")
-    LootGoblin2000._lastX = self.x
-    LootGoblin2000._lastY = self.y
+    LootGoblin2000._lastX      = self.x
+    LootGoblin2000._lastY      = self.y
+    -- Snapshot the current block state so it can be restored on re-open.
+    LootGoblin2000._savedBlocks = {}
+    for _, block in ipairs(self.blocks) do
+        if block.state == "finding" and block.targetItem then
+            LootGoblin2000._savedBlocks[#LootGoblin2000._savedBlocks + 1] = {
+                isPartial   = block.isPartialMode,
+                query       = block.isPartialMode and block.targetItem.query or nil,
+                displayName = not block.isPartialMode and block.targetItem.displayName or nil,
+                fullType    = not block.isPartialMode and block.targetItem.fullType or nil,
+            }
+        end
+    end
     self:setVisible(false)
     self:removeFromUIManager()
     LootGoblin2000._instance = nil
@@ -452,6 +479,7 @@ LootGoblin2000._instance      = nil
 LootGoblin2000._lastX         = nil
 LootGoblin2000._lastY         = nil
 LootGoblin2000._tickCount     = 0
+LootGoblin2000._savedBlocks   = nil   -- block state saved on window close, restored on open
 
 -- Sound notification state
 -- _soundMatchSig: string key representing the set of inventories that currently
@@ -503,10 +531,17 @@ local function playNotificationSound()
     end
 end
 
--- Global tick – scan containers every 5 ticks for all finding blocks
+-- Global tick – scan containers every 5 ticks for all finding blocks.
+-- When the window is closed (not visible / no instance) we do nothing.
 Events.OnTick.Add(function()
     local inst = LootGoblin2000._instance
-    if not inst or not inst:isVisible() then return end
+    if not inst or not inst:isVisible() then
+        -- Reset sound state so the notification fires again when the window
+        -- is re-opened and items are found.
+        LootGoblin2000._soundMatchSig = nil
+        LootGoblin2000._soundPlayed   = false
+        return
+    end
 
     LootGoblin2000._tickCount = LootGoblin2000._tickCount + 1
     if LootGoblin2000._tickCount < 5 then return end
@@ -541,24 +576,13 @@ function LootGoblin2000.open()
     LootGoblin2000.buildItemCache()
     LootGoblin2000.applyInterfaceScale()
 
-    if LootGoblin2000._instance then
-        print("[LootGoblin2000] re-showing existing instance")
-        LootGoblin2000._instance:setVisible(true)
-        LootGoblin2000._instance:bringToTop()
-        local lastBlock = LootGoblin2000._instance.blocks[#LootGoblin2000._instance.blocks]
-        if lastBlock and lastBlock.state == "search" and lastBlock.searchEntry then
-            lastBlock.searchEntry:focus()
-        end
-        return
-    end
-
     local x, y
     if LootGoblin2000._lastX and LootGoblin2000._lastY then
         x = LootGoblin2000._lastX
         y = LootGoblin2000._lastY
     else
-        local sw   = getCore():getScreenWidth()
-        local sh   = getCore():getScreenHeight()
+        local sw    = getCore():getScreenWidth()
+        local sh    = getCore():getScreenHeight()
         local initH = UI.HEADER_H + UI.searchBlockH(0) + UI.PAD
         x = math.floor((sw - UI.PANEL_WIDTH) / 2)
         y = math.floor((sh - initH) / 2)
@@ -573,6 +597,39 @@ function LootGoblin2000.open()
     win:addToUIManager()
     win:setWantKeyEvents(true)
     LootGoblin2000._instance = win
+
+    -- Restore previously saved block state (finding blocks from last session).
+    local saved = LootGoblin2000._savedBlocks
+    if saved and #saved > 0 then
+        -- Remove the default empty block that createChildren() added.
+        for i = #win.blocks, 1, -1 do
+            win:removeChild(win.blocks[i])
+        end
+        win.blocks = {}
+
+        for _, itemData in ipairs(saved) do
+            local block = UI.SearchBlock:new(0, 0, UI.PANEL_WIDTH, win)
+            block:initialise()
+            win:addChild(block)
+            win.blocks[#win.blocks + 1] = block
+            local data
+            if itemData.isPartial then
+                data = { isPartial = true, query = itemData.query }
+            else
+                data = { displayName = itemData.displayName, fullType = itemData.fullType }
+            end
+            block:onItemSelected(data, false)
+        end
+
+        win:reflow()
+        print("[LootGoblin2000] restored " .. #saved .. " block(s) from previous session")
+    else
+        -- No saved state – focus the default empty search entry.
+        local lastBlock = win.blocks[#win.blocks]
+        if lastBlock and lastBlock.state == "search" and lastBlock.searchEntry then
+            lastBlock.searchEntry:focus()
+        end
+    end
 
     print("[LootGoblin2000] window created and added to UI manager")
 end
