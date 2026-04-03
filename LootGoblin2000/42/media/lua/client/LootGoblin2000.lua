@@ -507,31 +507,37 @@ LootGoblin2000._lastX         = nil
 LootGoblin2000._lastY         = nil
 LootGoblin2000._tickCount     = 0
 LootGoblin2000._savedBlocks   = nil   -- block state saved on window close, restored on open
+LootGoblin2000._modDataReady  = false -- true once ModData has been received (always true in SP)
 
 -- Sound notification state
--- _soundMatchSig: string key representing the set of inventories that currently
---   contain a match.  The sound resets only when THIS set changes — so walking
---   past unrelated containers does not re-trigger the sound.
--- _soundPlayed: true once the notification sound has been played for the
---   current match set.
-LootGoblin2000._soundMatchSig = nil
-LootGoblin2000._soundPlayed   = false
+-- _soundPrevKeys: set of "blockRef|inventoryRef" keys that were in range on
+--   the previous scan tick.  The sound fires only when the current set
+--   contains a key that was NOT present in the previous set (i.e. a container
+--   newly entered range).  Keys leaving the set (container went out of range)
+--   are ignored — this prevents re-notification when one of several matching
+--   containers drops out of proximity.
+--   The set is cleared when the window is closed/hidden so the sound fires
+--   fresh on re-open.
+LootGoblin2000._soundPrevKeys = {}
 
--- Build a stable string signature from the inventories that currently hold a
--- match across all finding blocks.  Only external (non-player) entries count.
-local function buildMatchSig(inst)
-    local parts = {}
+-- Build the set of "blockRef|inventoryRef" keys that are currently in range
+-- across all finding blocks.  Only external (non-player) entries count.
+-- Satisfied blocks are excluded so that a new container appearing with only
+-- already-satisfied items does not trigger a sound notification.
+-- Returns a table used as a set (key → true).
+local function buildCurrentMatchKeys(inst)
+    local keys = {}
     for _, block in ipairs(inst.blocks) do
-        if block.state == "finding" then
+        if block.state == "finding" and not block.isSatisfied then
             for _, entry in ipairs(block.foundIn) do
                 if not entry.isPlayer and entry.inventory then
-                    parts[#parts + 1] = tostring(entry.inventory)
+                    local k = tostring(block) .. "|" .. tostring(entry.inventory)
+                    keys[k] = true
                 end
             end
         end
     end
-    table.sort(parts)
-    return table.concat(parts, "|")
+    return keys
 end
 
 -- Returns true when at least one finding block has an external match
@@ -566,8 +572,7 @@ Events.OnTick.Add(function()
     if not inst or not inst:isVisible() then
         -- Reset sound state so the notification fires again when the window
         -- is re-opened and items are found.
-        LootGoblin2000._soundMatchSig = nil
-        LootGoblin2000._soundPlayed   = false
+        LootGoblin2000._soundPrevKeys = {}
         return
     end
 
@@ -581,22 +586,21 @@ Events.OnTick.Add(function()
         end
     end
 
-    -- Build a signature of the inventories that currently hold a match.
-    -- The sound resets only when this set changes (matching containers left
-    -- range or new matching containers entered range).  Unrelated containers
-    -- entering/leaving proximity do not affect the signature.
-    local matchSig = buildMatchSig(inst)
-    if matchSig ~= LootGoblin2000._soundMatchSig then
-        LootGoblin2000._soundMatchSig = matchSig
-        LootGoblin2000._soundPlayed   = false
+    -- Compare current match keys against the previous tick's set.
+    -- Play the sound only when a key is NEW (container just entered range).
+    -- Keys disappearing (container left range) are silently ignored.
+    local currentKeys = buildCurrentMatchKeys(inst)
+    local hasNew = false
+    for k in pairs(currentKeys) do
+        if not LootGoblin2000._soundPrevKeys[k] then
+            hasNew = true
+            break
+        end
     end
-
-    -- Play notification sound once per match-set when an external match exists
-    -- and the sound hasn't been played yet for this match set.
-    if not LootGoblin2000._soundPlayed and anyExternalFound(inst) then
-        LootGoblin2000._soundPlayed = true
+    if hasNew and anyExternalFound(inst) then
         playNotificationSound()
     end
+    LootGoblin2000._soundPrevKeys = currentKeys
 end)
 
 function LootGoblin2000.open()
@@ -725,6 +729,38 @@ PZAPI.ModOptions:load()
 LootGoblin2000.applyInterfaceScale()
 
 -- ---------------------------------------------------------------------------
+-- Multiplayer ModData sync
+-- ---------------------------------------------------------------------------
+
+-- In singleplayer ModData is always available immediately; mark it ready now.
+-- In multiplayer we wait for OnReceiveGlobalModData before allowing the window
+-- to open (so templates are loaded from the server, not from a stale local copy).
+if not isMultiplayer() then
+    LootGoblin2000._modDataReady = true
+end
+
+-- Receive ModData broadcast from the server (multiplayer only).
+-- Store it locally so LootGoblin2000.getTemplates() can read it.
+Events.OnReceiveGlobalModData.Add(function(key, data)
+    if key ~= "LootGoblin2000Templates" then return end
+    print("[LootGoblin2000] OnReceiveGlobalModData received.")
+    -- PZ transmits empty tables as `false`; normalise.
+    if data == false or data == nil then data = {} end
+    ModData.add("LootGoblin2000Templates", data)
+    LootGoblin2000._modDataReady = true
+end)
+
+-- On player creation (fires after login in multiplayer), request the templates
+-- ModData from the server.  In singleplayer this is a no-op because
+-- _modDataReady is already true.
+Events.OnCreatePlayer.Add(function(playerIndex, player)
+    if not isMultiplayer() then return end
+    print("[LootGoblin2000] OnCreatePlayer – requesting ModData from server...")
+    LootGoblin2000._modDataReady = false
+    ModData.request("LootGoblin2000Templates")
+end)
+
+-- ---------------------------------------------------------------------------
 -- Hotkey
 -- ---------------------------------------------------------------------------
 
@@ -732,6 +768,13 @@ Events.OnKeyPressed.Add(function(key)
     if key == LootGoblin2000.options.Key:getValue() then
         local pl = getSpecificPlayer(0)
         if not pl then return end
+        -- In multiplayer, wait until the server has sent us the templates before
+        -- opening the window.  This avoids overwriting saved templates with an
+        -- empty local ModData table.
+        if not LootGoblin2000._modDataReady then
+            print("[LootGoblin2000] ModData not yet ready, ignoring open request.")
+            return
+        end
         LootGoblin2000.toggle()
     end
 end)

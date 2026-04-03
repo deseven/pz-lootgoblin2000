@@ -14,16 +14,41 @@ LootGoblin2000 = LootGoblin2000 or {}
 
 local MOD_DATA_KEY = "LootGoblin2000Templates"
 
--- Returns the templates table { [name] = { items = { {displayName, fullType, isPartial, query}, ... } } }
-function LootGoblin2000.getTemplates()
-    local md = ModData.getOrCreate(MOD_DATA_KEY)
-    if not md.templates then
-        md.templates = {}
+-- Returns the current player's username for keying per-player data.
+-- In singleplayer returns a fixed key; in multiplayer returns the actual username.
+local function getUsername()
+    if isMultiplayer() then
+        local pl = getSpecificPlayer(0)
+        if pl then return pl:getUsername() end
     end
-    return md.templates
+    return "singleplayer"
 end
 
--- Returns a sorted list of template names.
+-- Persists the full ModData table and, in multiplayer, transmits it to the
+-- server so it survives logout/login.
+local function persistModData()
+    local md = ModData.getOrCreate(MOD_DATA_KEY)
+    ModData.add(MOD_DATA_KEY, md)
+    if isMultiplayer() then
+        ModData.transmit(MOD_DATA_KEY)
+    end
+end
+
+-- Returns the templates table for the current player.
+-- Structure: { [templateName] = { items = { {displayName, fullType, isPartial, query, neededAmount}, ... } } }
+function LootGoblin2000.getTemplates()
+    local md = ModData.getOrCreate(MOD_DATA_KEY)
+    local username = getUsername()
+    if not md[username] then
+        md[username] = {}
+    end
+    if not md[username].templates then
+        md[username].templates = {}
+    end
+    return md[username].templates
+end
+
+-- Returns a sorted list of template names for the current player.
 function LootGoblin2000.getTemplateNames()
     local templates = LootGoblin2000.getTemplates()
     local names = {}
@@ -52,7 +77,7 @@ function LootGoblin2000.saveTemplate(name, blocks)
         end
     end
     templates[name] = { items = items }
-    ModData.add(MOD_DATA_KEY, ModData.getOrCreate(MOD_DATA_KEY))
+    persistModData()
     print("[LootGoblin2000] saved template '" .. name .. "' with " .. #items .. " item(s).")
 end
 
@@ -61,7 +86,7 @@ function LootGoblin2000.removeTemplate(name)
     if not name or name == "" then return end
     local templates = LootGoblin2000.getTemplates()
     templates[name] = nil
-    ModData.add(MOD_DATA_KEY, ModData.getOrCreate(MOD_DATA_KEY))
+    persistModData()
     print("[LootGoblin2000] removed template '" .. name .. "'.")
 end
 
@@ -118,15 +143,44 @@ end
 
 local MAX_RESULTS = 5
 
+-- Scoring tiers (lower = better):
+--   0 = exact display name match
+--   1 = exact type match (e.g. "Base.Nails")
+--   2 = display name starts with query
+--   3 = type starts with query
+--   4 = display name contains query
+--   5 = type contains query
+local function scoreMatch(entry, lq)
+    if entry.lowerName == lq then return 0 end
+    if entry.lowerType == lq then return 1 end
+    if entry.lowerName:sub(1, #lq) == lq then return 2 end
+    if entry.lowerType:sub(1, #lq) == lq then return 3 end
+    if entry.lowerName:find(lq, 1, true) then return 4 end
+    if entry.lowerType:find(lq, 1, true) then return 5 end
+    return nil
+end
+
 function LootGoblin2000.searchItems(query)
-    local results = {}
-    if not query or query == "" then return results end
+    if not query or query == "" then return {} end
     local lq = query:lower()
+    local scored = {}
     for _, entry in ipairs(cachedItems) do
-        if entry.lowerName:find(lq, 1, true) or entry.lowerType:find(lq, 1, true) then
-            results[#results + 1] = entry
-            if #results >= MAX_RESULTS then break end
+        local score = scoreMatch(entry, lq)
+        if score then
+            scored[#scored + 1] = { entry = entry, score = score }
         end
+    end
+    -- Sort by score tier first, then by display name length (shorter = more specific),
+    -- then alphabetically for stable ordering.
+    table.sort(scored, function(a, b)
+        if a.score ~= b.score then return a.score < b.score end
+        local la, lb = #a.entry.lowerName, #b.entry.lowerName
+        if la ~= lb then return la < lb end
+        return a.entry.lowerName < b.entry.lowerName
+    end)
+    local results = {}
+    for i = 1, math.min(MAX_RESULTS, #scored) do
+        results[i] = scored[i].entry
     end
     return results
 end

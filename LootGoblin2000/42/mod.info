@@ -4,6 +4,6 @@ description=Your trusty little companion for finding all the good stuff.
 poster=poster.png
 icon=icon.png
 author=deseven
-modversion=1.1.0
+modversion=1.1.1
 versionMin=42.14
 require=NeatUI_Framework
